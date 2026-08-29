@@ -1,0 +1,25 @@
+{
+  "name": "recomp-tracker-app",
+  "version": "1.0.0",
+  "description": "Android app that logs workouts straight into your Google Sheet via an Apps Script backend.",
+  "private": true,
+  "scripts": {
+    "sync": "cap sync android",
+    "mock": "node test/mock-server.js",
+    "test:parse": "node test/parse_test.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@capacitor/android": "^6.2.1",
+    "@capacitor/app": "^6.0.3",
+    "@capacitor/camera": "^6.1.3",
+    "@capacitor/cli": "^6.2.1",
+    "@capacitor/core": "^6.2.1",
+    "@capacitor/preferences": "^6.0.4"
+  },
+  "devDependencies": {
+    "express": "^5.2.1"
+  }
+}

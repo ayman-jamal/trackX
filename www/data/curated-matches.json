@@ -1,0 +1,107 @@
+{
+  "Dumbbell Flat Bench Press": {
+    "imageUrl": "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Dumbbell_Bench_Press/0.jpg",
+    "matchedName": "Dumbbell Bench Press",
+    "source": "auto"
+  },
+  "Lat Pulldowns (Wide Grip)": {
+    "imageUrl": "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Wide-Grip_Lat_Pulldown/0.jpg",
+    "matchedName": "Wide-Grip Lat Pulldown",
+    "source": "auto"
+  },
+  "Seated Dumbbell Overhead Press": {
+    "imageUrl": "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Seated_Dumbbell_Press/0.jpg",
+    "matchedName": "Seated Dumbbell Press",
+    "source": "auto"
+  },
+  "Seated Cable Row (Neutral Grip": {
+    "imageUrl": "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Seated_Cable_Rows/0.jpg",
+    "matchedName": "Seated Cable Rows",
+    "source": "auto"
+  },
+  "Tricep Rope Pushdowns": {
+    "imageUrl": "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Triceps_Pushdown_-_Rope_Attachment/0.jpg",
+    "matchedName": "Triceps Pushdown - Rope Attachment",
+    "source": "auto"
+  },
+  "Dumbbell Bicep Curls": {
+    "imageUrl": "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Dumbbell_Bicep_Curl/0.jpg",
+    "matchedName": "Dumbbell Bicep Curl",
+    "source": "auto"
+  },
+  "Leg Press (or Dumbbell Goblet Squat)": {
+    "imageUrl": "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Leg_Press/0.jpg",
+    "matchedName": "Leg Press",
+    "source": "auto"
+  },
+  "Dumbbell Walking Lunges": {
+    "imageUrl": "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Dumbbell_Lunges/0.jpg",
+    "matchedName": "Dumbbell Lunges",
+    "source": "auto"
+  },
+  "Lying Leg Curls": {
+    "imageUrl": "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Lying_Leg_Curls/0.jpg",
+    "matchedName": "Lying Leg Curls",
+    "source": "auto"
+  },
+  "Standing Calf Raises": {
+    "imageUrl": "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Standing_Calf_Raises/0.jpg",
+    "matchedName": "Standing Calf Raises",
+    "source": "auto"
+  },
+  "Plank Hold": {
+    "imageUrl": "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Plank/0.jpg",
+    "matchedName": "Plank",
+    "source": "auto"
+  },
+  "Incline Dumbbell Bench Press": {
+    "imageUrl": "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Incline_Dumbbell_Press/0.jpg",
+    "matchedName": "Incline Dumbbell Press",
+    "source": "auto"
+  },
+  "Dumbbell Lateral Raises": {
+    "imageUrl": "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Side_Lateral_Raise/0.jpg",
+    "matchedName": "Side Lateral Raise",
+    "source": "auto"
+  },
+  "Cable Face Pulls": {
+    "imageUrl": "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Face_Pull/0.jpg",
+    "matchedName": "Face Pull",
+    "source": "auto"
+  },
+  "Hammer Curls (Dumbbell)": {
+    "imageUrl": "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Hammer_Curls/0.jpg",
+    "matchedName": "Hammer Curls",
+    "source": "auto"
+  },
+  "Overhead Cable Tricep Extension": {
+    "imageUrl": "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Cable_One_Arm_Tricep_Extension/0.jpg",
+    "matchedName": "Cable One Arm Tricep Extension",
+    "source": "auto"
+  },
+  "45-Degree Back Extension": {
+    "imageUrl": "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Hyperextensions_Back_Extensions/0.jpg",
+    "matchedName": "Hyperextensions (Back Extensions)",
+    "source": "auto"
+  },
+  "Leg Extension Machine": {
+    "imageUrl": "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Leg_Extensions/0.jpg",
+    "matchedName": "Leg Extensions",
+    "source": "auto"
+  },
+  "Seated Leg Curls": {
+    "imageUrl": "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Seated_Leg_Curl/0.jpg",
+    "matchedName": "Seated Leg Curl",
+    "source": "auto"
+  },
+  "Seated Calf Raises": {
+    "imageUrl": "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Seated_Calf_Raise/0.jpg",
+    "matchedName": "Seated Calf Raise",
+    "source": "auto"
+  },
+  "Hanging Knee Raises": {
+    "imageUrl": "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Hanging_Leg_Raise/0.jpg",
+    "matchedName": "Hanging Leg Raise",
+    "source": "auto"
+  }
+}
