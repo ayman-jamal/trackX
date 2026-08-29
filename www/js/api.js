@@ -58,7 +58,8 @@ window.RT = window.RT || {};
 
   window.RT.api = {
     ping: () => call("ping", {}),
-    getStructure: () => call("getStructure", {}),
+    getSpreadsheetInfo: (sheetId) => call("getSpreadsheetInfo", { sheetId }),
+    getStructure: (sheetId) => call("getStructure", { sheetId }),
     logSet: (params) => call("logSet", params),
     addExercise: (params) => call("addExercise", params),
     updateExerciseImage: (params) => call("updateExerciseImage", params)

@@ -228,6 +228,11 @@ input, select, textarea { font-family: inherit; }
   border-radius: 10px; padding: 0.7rem 0.8rem; font-size: 0.95rem;
 }
 
+/* ---------- Analytics ---------- */
+
+.chart-wrap { position: relative; height: 260px; margin-bottom: 1.2rem; }
+.chart-wrap canvas { max-width: 100%; }
+
 /* ---------- Settings ---------- */
 
 .settings-section { margin-bottom: 1.6rem; }
@@ -237,6 +242,16 @@ input, select, textarea { font-family: inherit; }
 .status-pill.ok { background: var(--secondary-tint); color: var(--secondary); }
 .status-pill.bad { background: var(--warn-tint); color: var(--accent); }
 .status-pill .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+
+.sheet-list { display: flex; flex-direction: column; gap: 0.5rem; }
+.sheet-row {
+  display: flex; align-items: center; gap: 0.6rem;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 0.7rem 0.85rem;
+}
+.sheet-row.active { border-color: var(--accent); }
+.sheet-row-main { flex: 1; min-width: 0; }
+.sheet-row-label { font-weight: 600; font-size: 0.92rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sheet-row-hint { font-size: 0.76rem; color: var(--text-tertiary); font-family: "JetBrains Mono", ui-monospace, monospace; }
 
 /* ---------- Modal sheet ---------- */
 

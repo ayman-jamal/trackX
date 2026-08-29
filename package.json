@@ -6,7 +6,8 @@
   "scripts": {
     "sync": "cap sync android",
     "mock": "node test/mock-server.js",
-    "test:parse": "node test/parse_test.js"
+    "test:parse": "node test/parse_test.js",
+    "test:analytics": "node test/analytics_test.js"
   },
   "keywords": [],
   "author": "",

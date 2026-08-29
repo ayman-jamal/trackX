@@ -11,7 +11,6 @@
  * is the shared-secret token below, so keep the deployment URL private and
  * change the secret from the default.
  */
-
 // ---------------------------------------------------------------------------
 // CONFIG — change this before deploying.
 // ---------------------------------------------------------------------------
@@ -56,7 +55,8 @@ function handle_(e) {
     } else {
       var action = params.action;
       if (action === "ping") out = { ok: true, result: ping_() };
-      else if (action === "getStructure") out = { ok: true, result: getStructure_() };
+      else if (action === "getSpreadsheetInfo") out = { ok: true, result: getSpreadsheetInfo_(params) };
+      else if (action === "getStructure") out = { ok: true, result: getStructure_(params) };
       else if (action === "logSet") out = { ok: true, result: logSet_(params) };
       else if (action === "addExercise") out = { ok: true, result: addExercise_(params) };
       else if (action === "updateExerciseImage") out = { ok: true, result: updateExerciseImage_(params) };
@@ -76,20 +76,50 @@ function parseParams_(e) {
 }
 
 // ---------------------------------------------------------------------------
+// Spreadsheet resolution — each request names the sheet it wants via
+// sheetId, so one deployment can serve any number of the user's own
+// monthly spreadsheets instead of being bound to a single one.
+// ---------------------------------------------------------------------------
+
+function getSpreadsheet_(rawId) {
+  if (!rawId) throw new Error("Missing sheetId");
+  var id = extractSheetId_(String(rawId));
+  try {
+    return SpreadsheetApp.openById(id);
+  } catch (err) {
+    throw new Error("Can't open that spreadsheet — check the link and make sure this script's Google account has access to it.");
+  }
+}
+
+// Accepts either a bare spreadsheet ID or a full share URL. Canonical
+// extraction happens client-side (Settings); this is a defensive fallback.
+function extractSheetId_(raw) {
+  var m = raw.match(/\/d\/([a-zA-Z0-9_-]{20,})/);
+  return m ? m[1] : raw.trim();
+}
+
+// ---------------------------------------------------------------------------
 // Actions
 // ---------------------------------------------------------------------------
 
 function ping_() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  return { time: new Date().toISOString() };
+}
+
+function getSpreadsheetInfo_(p) {
+  var ss = getSpreadsheet_(p.sheetId);
+  var weekSheets = ss.getSheets().filter(function (s) { return s.getName() !== LIBRARY_SHEET_NAME; });
+  var dayBlockCounts = {};
+  weekSheets.forEach(function (s) { dayBlockCounts[s.getName()] = readDayBlocks_(s).length; });
   return {
     spreadsheetName: ss.getName(),
-    sheetNames: ss.getSheets().map(function (s) { return s.getName(); }),
-    time: new Date().toISOString()
+    sheetNames: weekSheets.map(function (s) { return s.getName(); }),
+    dayBlockCounts: dayBlockCounts
   };
 }
 
-function getStructure_() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+function getStructure_(p) {
+  var ss = getSpreadsheet_(p.sheetId);
   var weekSheets = ss.getSheets().filter(function (s) { return s.getName() !== LIBRARY_SHEET_NAME; });
 
   var weeks = [];
@@ -108,7 +138,7 @@ function getStructure_() {
     });
   });
 
-  var library = readLibrary_();
+  var library = readLibrary_(ss);
   // Make sure every exercise seen in the week sheets has a library entry
   // (blank image) so the app always has something to show/edit against.
   var libraryChanged = false;
@@ -118,7 +148,7 @@ function getStructure_() {
       libraryChanged = true;
     }
   });
-  if (libraryChanged) writeLibrary_(library);
+  if (libraryChanged) writeLibrary_(ss, library);
 
   return { weeks: weeks, days: days, exerciseLibrary: library };
 }
@@ -225,7 +255,7 @@ function formatMaybeDate_(val) {
 }
 
 function logSet_(p) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = getSpreadsheet_(p.sheetId);
   var sheet = ss.getSheetByName(p.week);
   if (!sheet) throw new Error("Unknown week sheet: " + p.week);
   var row = Number(p.row);
@@ -243,7 +273,7 @@ function logSet_(p) {
  * consistent across weeks. Sheets without a matching block are skipped.
  */
 function addExercise_(p) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = getSpreadsheet_(p.sheetId);
   var weekSheets = ss.getSheets().filter(function (s) { return s.getName() !== LIBRARY_SHEET_NAME; });
   var updatedWeeks = [];
 
@@ -271,10 +301,10 @@ function addExercise_(p) {
   });
 
   if (p.exercise) {
-    var library = readLibrary_();
+    var library = readLibrary_(ss);
     if (!library[p.exercise]) {
       library[p.exercise] = { imageUrl: p.imageUrl || "", source: p.imageUrl ? (p.imageSource || "manual") : "" };
-      writeLibrary_(library);
+      writeLibrary_(ss, library);
     }
   }
 
@@ -285,8 +315,7 @@ function addExercise_(p) {
 // Exercise image library (its own sheet, one row per unique exercise name)
 // ---------------------------------------------------------------------------
 
-function getLibrarySheet_() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+function getLibrarySheet_(ss) {
   var sheet = ss.getSheetByName(LIBRARY_SHEET_NAME);
   if (!sheet) {
     sheet = ss.insertSheet(LIBRARY_SHEET_NAME);
@@ -296,8 +325,8 @@ function getLibrarySheet_() {
   return sheet;
 }
 
-function readLibrary_() {
-  var sheet = getLibrarySheet_();
+function readLibrary_(ss) {
+  var sheet = getLibrarySheet_(ss);
   var lastRow = sheet.getLastRow();
   var library = {};
   if (lastRow < 2) return library;
@@ -310,8 +339,8 @@ function readLibrary_() {
   return library;
 }
 
-function writeLibrary_(library) {
-  var sheet = getLibrarySheet_();
+function writeLibrary_(ss, library) {
+  var sheet = getLibrarySheet_(ss);
   var names = Object.keys(library);
   var rows = names.map(function (name) {
     var entry = library[name];
@@ -324,8 +353,9 @@ function writeLibrary_(library) {
 
 function updateExerciseImage_(p) {
   if (!p.exercise) throw new Error("Missing exercise name");
-  var library = readLibrary_();
+  var ss = getSpreadsheet_(p.sheetId);
+  var library = readLibrary_(ss);
   library[p.exercise] = { imageUrl: p.imageUrl || "", source: p.source || "manual" };
-  writeLibrary_(library);
+  writeLibrary_(ss, library);
   return { saved: true };
 }

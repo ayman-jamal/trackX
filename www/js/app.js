@@ -6,9 +6,11 @@ window.RT = window.RT || {};
   const storage = RT.storage;
   const api = RT.api;
 
-  const CACHE_KEY = "rt-structure-cache";
   const PENDING_KEY = "rt-pending-logs";
   const LOCAL_IMAGES_KEY = "rt-local-images"; // device-only photos, never synced
+  const SHEETS_KEY = "rt-sheets"; // [{id, label, monthKey, url, addedAt}]
+  const ACTIVE_SHEET_KEY = "rt-active-sheet-id";
+  function cacheKeyFor(sheetId) { return "rt-structure-cache:" + sheetId; }
 
   let state = {
     screen: "loading",
@@ -17,7 +19,15 @@ window.RT = window.RT || {};
     session: null, // {dayIndex, exIndex, entries: [{actualReps, kg}]}
     imageSheetFor: null, // exercise name currently showing the image-options sheet
     addExerciseFor: null, // dayTitle currently showing the add-exercise sheet
-    connection: "unknown"
+    connection: "unknown",
+    sheets: [], // saved monthly sheets — see SHEETS_KEY
+    activeSheetId: null, // which sheet home/session/finish read & write
+    forceReconnect: false, // true when there's no active sheet yet and Settings must not be left
+    analyticsData: {}, // sheetId -> structure, populated by loadAnalyticsData()
+    analyticsExercise: null,
+    analyticsMetric: "topWeightKg", // or "estVolume"
+    analyticsChart: null, // live Chart.js instance
+    analyticsRefreshed: null // {ok, total} — background-refresh status note
   };
 
   let localImages = {};
@@ -37,6 +47,8 @@ window.RT = window.RT || {};
   async function boot() {
     RT.config = await storage.getJSON("rt-config", null);
     localImages = await storage.getJSON(LOCAL_IMAGES_KEY, {});
+    state.sheets = await storage.getJSON(SHEETS_KEY, []);
+    state.activeSheetId = await storage.get(ACTIVE_SHEET_KEY);
 
     if (!RT.config || !RT.config.url || !RT.config.token) {
       state.screen = "settings";
@@ -44,7 +56,17 @@ window.RT = window.RT || {};
       return;
     }
 
-    const cached = await storage.getJSON(CACHE_KEY, null);
+    if (!state.sheets.length || !state.activeSheetId) {
+      // Upgrading from the old single-sheet model (or a fresh install with a
+      // deployment already configured) — there's no spreadsheet ID to
+      // recover automatically, so ask once, same as adding any sheet.
+      state.forceReconnect = true;
+      state.screen = "settings";
+      render();
+      return;
+    }
+
+    const cached = await storage.getJSON(cacheKeyFor(state.activeSheetId), null);
     if (cached) {
       state.structure = cached;
       state.activeWeek = cached.weeks[0];
@@ -57,12 +79,12 @@ window.RT = window.RT || {};
 
   async function syncNow(silent) {
     try {
-      const structure = await api.getStructure();
+      const structure = await api.getStructure(state.activeSheetId);
       state.structure = structure;
       if (!state.activeWeek || structure.weeks.indexOf(state.activeWeek) === -1) {
         state.activeWeek = structure.weeks[0];
       }
-      await storage.setJSON(CACHE_KEY, structure);
+      await storage.setJSON(cacheKeyFor(state.activeSheetId), structure);
       state.connection = "online";
       await flushPending();
       await applyCuratedDefaults();
@@ -96,9 +118,9 @@ window.RT = window.RT || {};
     for (const name of toApply) {
       const c = curated[name];
       lib[name] = { imageUrl: c.imageUrl, source: "auto" };
-      try { await api.updateExerciseImage({ exercise: name, imageUrl: c.imageUrl, source: "auto" }); } catch (e) { /* will retry next sync */ }
+      try { await api.updateExerciseImage({ sheetId: state.activeSheetId, exercise: name, imageUrl: c.imageUrl, source: "auto" }); } catch (e) { /* will retry next sync */ }
     }
-    await storage.setJSON(CACHE_KEY, state.structure);
+    await storage.setJSON(cacheKeyFor(state.activeSheetId), state.structure);
   }
 
   function describeError(e) {
@@ -123,6 +145,7 @@ window.RT = window.RT || {};
     if (!pending.length) return;
     const remaining = [];
     for (const entry of pending) {
+      entry.sheetId = entry.sheetId || state.activeSheetId;
       try { await api.logSet(entry); } catch (e) { remaining.push(entry); }
     }
     await savePending(remaining);
@@ -136,6 +159,7 @@ window.RT = window.RT || {};
     if (state.screen === "home") return renderHome();
     if (state.screen === "session") return renderSession();
     if (state.screen === "finish") return renderFinish();
+    if (state.screen === "analytics") return renderAnalytics();
   }
 
   function renderLoading() {
@@ -151,6 +175,7 @@ window.RT = window.RT || {};
       html += '<div class="brand"><span class="mark">Recomp<span class="dot">.</span>Tracker</span></div>';
     }
     html += '<div class="topbar-actions">';
+    if (opts.showAnalytics !== false) html += '<button class="icon-btn" id="btn-analytics">📈</button>';
     if (opts.showSettings !== false) html += '<button class="icon-btn" id="btn-settings">⚙</button>';
     html += '</div></div>';
     return html;
@@ -161,28 +186,55 @@ window.RT = window.RT || {};
     if (back && onBack) back.onclick = onBack;
     const settingsBtn = document.getElementById("btn-settings");
     if (settingsBtn) settingsBtn.onclick = () => { state.screen = "settings"; render(); };
+    const analyticsBtn = document.getElementById("btn-analytics");
+    if (analyticsBtn) analyticsBtn.onclick = () => { state.screen = "analytics"; render(); loadAnalyticsData(); };
   }
 
   /* ============ Settings ============ */
 
   function renderSettings() {
     const cfg = RT.config || { url: "", token: "" };
-    let html = topbar({ back: state.structure ? "Home" : null, showSettings: false });
-    html += '<div class="home-lead"><h1>Connect your sheet</h1><p>Paste the Apps Script Web App URL and the shared token from your deployment. See SETUP.md if you haven\'t deployed it yet.</p></div>';
+    const canLeave = !state.forceReconnect && state.structure;
+    let html = topbar({ back: canLeave ? "Home" : null, showSettings: false, showAnalytics: false });
 
-    html += '<div class="settings-section">';
+    if (state.forceReconnect) {
+      html += '<div class="home-lead"><h1>Reconnect your sheet</h1><p>This app now supports one sheet per month. Paste your current sheet\'s share link below once to keep syncing — nothing on the sheet itself changes.</p></div>';
+    } else {
+      html += '<div class="home-lead"><h1>Settings</h1><p>Connect to your Apps Script deployment, then manage which monthly sheets it can read and write.</p></div>';
+    }
+
+    html += '<div class="settings-section"><h2>Backend connection</h2>';
     html += '<div class="form-field"><label>Web App URL</label><input type="url" id="cfg-url" placeholder="https://script.google.com/macros/s/.../exec" value="' + escapeAttr(cfg.url) + '"></div>';
     html += '<div class="form-field"><label>Shared token</label><input type="text" id="cfg-token" placeholder="the SHARED_SECRET from Code.gs" value="' + escapeAttr(cfg.token) + '"></div>';
     html += '<button class="btn btn-primary btn-block" id="btn-test">Test &amp; save</button>';
     html += '<div id="settings-status" style="margin-top:0.9rem;"></div>';
     html += '</div>';
 
-    if (state.structure) {
-      html += '<div class="settings-section"><h2>Connected sheet</h2><p class="settings-hint">' + escapeHtml(state.structure.weeks.join(", ")) + '</p></div>';
+    html += '<div class="settings-section"><h2>Your sheets</h2>';
+    if (!state.sheets.length) {
+      html += '<div class="empty-state">No sheets added yet — add your first one below.</div>';
+    } else {
+      html += '<div class="sheet-list">';
+      state.sheets.forEach((s) => {
+        const isActive = s.id === state.activeSheetId;
+        html += `<div class="sheet-row ${isActive ? "active" : ""}">
+          <div class="sheet-row-main">
+            <div class="sheet-row-label">${escapeHtml(s.label)}</div>
+            <div class="sheet-row-hint">${escapeHtml(s.monthKey || "")}</div>
+          </div>
+          ${isActive
+            ? '<span class="status-pill ok"><span class="dot"></span> Active</span>'
+            : `<button class="btn btn-small btn-secondary" data-set-active="${escapeAttr(s.id)}">Make active</button>`}
+          <button class="icon-btn" data-remove-sheet="${escapeAttr(s.id)}">✕</button>
+        </div>`;
+      });
+      html += '</div>';
     }
+    html += '<button class="btn btn-ghost btn-block" id="btn-add-sheet" style="margin-top:0.8rem;">+ Add a sheet</button>';
+    html += '</div>';
 
     app.innerHTML = html;
-    wireTopbar(() => { state.screen = "home"; render(); });
+    wireTopbar(canLeave ? () => { state.screen = "home"; render(); } : null);
 
     document.getElementById("btn-test").onclick = async () => {
       const url = document.getElementById("cfg-url").value.trim();
@@ -192,13 +244,102 @@ window.RT = window.RT || {};
 
       RT.config = { url, token };
       try {
-        const result = await api.ping();
+        await api.ping();
         await storage.setJSON("rt-config", RT.config);
-        statusEl.innerHTML = `<span class="status-pill ok"><span class="dot"></span> Connected to "${escapeHtml(result.spreadsheetName)}"</span>`;
+        statusEl.innerHTML = '<span class="status-pill ok"><span class="dot"></span> Deployment reachable</span>';
         showToast("Saved");
-        await syncNow(false);
-        setTimeout(() => { state.screen = "home"; render(); }, 600);
       } catch (e) {
+        statusEl.innerHTML = `<span class="status-pill bad"><span class="dot"></span> ${escapeHtml(describeError(e))}</span>`;
+      }
+    };
+
+    app.querySelectorAll("[data-set-active]").forEach((el) => {
+      el.onclick = async () => { await setActiveSheet(el.getAttribute("data-set-active")); render(); showToast("Active sheet changed"); };
+    });
+    app.querySelectorAll("[data-remove-sheet]").forEach((el) => {
+      el.onclick = () => removeSheet(el.getAttribute("data-remove-sheet"));
+    });
+    document.getElementById("btn-add-sheet").onclick = openAddSheetSheet;
+  }
+
+  async function setActiveSheet(id) {
+    state.activeSheetId = id;
+    await storage.set(ACTIVE_SHEET_KEY, id);
+    const cached = await storage.getJSON(cacheKeyFor(id), null);
+    state.structure = cached || null;
+    state.activeWeek = cached ? cached.weeks[0] : null;
+    state.forceReconnect = false;
+    await syncNow(true);
+  }
+
+  async function removeSheet(id) {
+    if (!confirm("Remove this sheet from the app? Your Google Sheet itself is untouched — this only stops tracking it here.")) return;
+    state.sheets = state.sheets.filter((s) => s.id !== id);
+    await storage.setJSON(SHEETS_KEY, state.sheets);
+    await storage.set(cacheKeyFor(id), "");
+    if (state.activeSheetId === id) {
+      if (state.sheets.length) {
+        await setActiveSheet(state.sheets[0].id);
+      } else {
+        state.activeSheetId = null;
+        await storage.set(ACTIVE_SHEET_KEY, "");
+        state.structure = null;
+        state.forceReconnect = true;
+      }
+    }
+    render();
+  }
+
+  function extractSheetId(raw) {
+    const s = String(raw || "").trim();
+    const m = s.match(/\/d\/([a-zA-Z0-9_-]{20,})/);
+    if (m) return m[1];
+    return /^[a-zA-Z0-9_-]{20,}$/.test(s) ? s : null;
+  }
+
+  function openAddSheetSheet() {
+    closeSheet();
+    const wrap = document.createElement("div");
+    wrap.className = "sheet-backdrop";
+    wrap.id = "sheet-backdrop";
+    const defaultMonth = new Date().toISOString().slice(0, 7);
+    wrap.innerHTML = `<div class="sheet">
+      <h2>Add a sheet</h2>
+      <div class="form-field"><label>Share link</label><input type="url" id="new-sheet-link" placeholder="https://docs.google.com/spreadsheets/d/.../edit"></div>
+      <div class="form-field"><label>Label</label><input type="text" id="new-sheet-label" placeholder="e.g. March 2026"></div>
+      <div class="form-field"><label>Month</label><input type="month" id="new-sheet-month" value="${defaultMonth}"></div>
+      <div id="add-sheet-status" style="margin-bottom:0.8rem;"></div>
+      <button class="btn btn-primary btn-block" id="opt-validate-sheet">Verify &amp; add</button>
+      <button class="btn btn-ghost btn-block sheet-close" id="opt-close-sheet">Cancel</button>
+    </div>`;
+    document.body.appendChild(wrap);
+    wrap.addEventListener("click", (e) => { if (e.target === wrap) closeSheet(); });
+    document.getElementById("opt-close-sheet").onclick = closeSheet;
+
+    document.getElementById("opt-validate-sheet").onclick = async () => {
+      const link = document.getElementById("new-sheet-link").value.trim();
+      const label = document.getElementById("new-sheet-label").value.trim();
+      const monthKey = document.getElementById("new-sheet-month").value;
+      const statusEl = document.getElementById("add-sheet-status");
+      const id = extractSheetId(link);
+      if (!id) { statusEl.innerHTML = '<span class="status-pill bad"><span class="dot"></span> Couldn\'t find a spreadsheet ID in that link</span>'; return; }
+
+      const btn = document.getElementById("opt-validate-sheet");
+      btn.innerHTML = '<span class="spinner"></span> Verifying…';
+      try {
+        const info = await api.getSpreadsheetInfo(id);
+        const totalBlocks = Object.keys(info.dayBlockCounts || {}).reduce((sum, w) => sum + info.dayBlockCounts[w], 0);
+        if (totalBlocks === 0) {
+          statusEl.innerHTML = '<span class="status-pill bad"><span class="dot"></span> No "Day-N:" blocks found — added anyway, double check the sheet layout</span>';
+        }
+        state.sheets.push({ id, label: label || info.spreadsheetName, monthKey, url: link, addedAt: new Date().toISOString() });
+        await storage.setJSON(SHEETS_KEY, state.sheets);
+        if (state.sheets.length === 1 || !state.activeSheetId) await setActiveSheet(id);
+        closeSheet();
+        showToast("Sheet added");
+        render();
+      } catch (e) {
+        btn.innerHTML = "Verify &amp; add";
         statusEl.innerHTML = `<span class="status-pill bad"><span class="dot"></span> ${escapeHtml(describeError(e))}</span>`;
       }
     };
@@ -213,7 +354,10 @@ window.RT = window.RT || {};
       html += '<div class="conn-banner"><span>Can’t reach your sheet — showing cached data.</span><button id="btn-retry">Retry</button></div>';
     }
 
-    html += '<div class="home-lead"><h1>What are you training today?</h1><p>Pick a week, then a day, to start logging.</p></div>';
+    const activeSheet = state.sheets.find((s) => s.id === state.activeSheetId);
+    html += '<div class="home-lead"><h1>What are you training today?</h1><p>Pick a week, then a day, to start logging.</p>';
+    if (activeSheet) html += `<p class="settings-hint">Logging to: <b>${escapeHtml(activeSheet.label)}</b></p>`;
+    html += '</div>';
 
     if (!state.structure) {
       html += '<div class="empty-state">Not synced yet. Pull to retry or check Settings.</div>';
@@ -339,6 +483,7 @@ window.RT = window.RT || {};
     app.innerHTML = html;
 
     document.getElementById("btn-settings").onclick = () => { state.screen = "settings"; render(); };
+    document.getElementById("btn-analytics").onclick = () => { state.screen = "analytics"; render(); loadAnalyticsData(); };
     document.getElementById("btn-back-top").onclick = () => confirmLeave();
 
     ["actualReps", "kg"].forEach((key) => {
@@ -401,6 +546,7 @@ window.RT = window.RT || {};
       const hasKg = r.kg !== "" && r.kg !== null && r.kg !== undefined;
       if (!hasReps && !hasKg) continue; // nothing entered for this exercise — skip
       const payload = {
+        sheetId: state.activeSheetId,
         week: weekName, row: r.row,
         actualRepsCol: cols.actualReps, kgCol: cols.kg,
         actualReps: hasReps ? r.actualReps : "", kg: hasKg ? r.kg : ""
@@ -422,7 +568,7 @@ window.RT = window.RT || {};
         if (r.kg !== "") ex.kg = r.kg;
       }
     });
-    await storage.setJSON(CACHE_KEY, state.structure);
+    await storage.setJSON(cacheKeyFor(state.activeSheetId), state.structure);
 
     state.finishSaving = false;
     state.finishOk = allOk;
@@ -453,7 +599,121 @@ window.RT = window.RT || {};
 
     app.innerHTML = html;
     document.getElementById("btn-settings").onclick = () => { state.screen = "settings"; render(); };
+    document.getElementById("btn-analytics").onclick = () => { state.screen = "analytics"; render(); loadAnalyticsData(); };
     document.getElementById("btn-home").onclick = () => { state.session = null; state.screen = "home"; render(); };
+  }
+
+  /* ============ Analytics ============ */
+
+  async function loadAnalyticsData() {
+    for (const s of state.sheets) {
+      const cached = await storage.getJSON(cacheKeyFor(s.id), null);
+      if (cached) state.analyticsData[s.id] = cached;
+    }
+    if (state.screen === "analytics") render();
+
+    const results = await Promise.allSettled(state.sheets.map((s) => api.getStructure(s.id)));
+    let ok = 0;
+    results.forEach((r, idx) => {
+      if (r.status === "fulfilled") {
+        ok++;
+        const s = state.sheets[idx];
+        state.analyticsData[s.id] = r.value;
+        storage.setJSON(cacheKeyFor(s.id), r.value);
+      }
+    });
+    state.analyticsRefreshed = { ok: ok, total: state.sheets.length };
+    if (state.screen === "analytics") render();
+  }
+
+  function renderAnalytics() {
+    let html = topbar({ back: "Home", showAnalytics: false });
+    html += '<div class="home-lead"><h1>Analytics</h1><p>Track an exercise\'s trend across your saved sheets.</p></div>';
+
+    if (!state.sheets.length) {
+      html += '<div class="empty-state">Add a sheet in Settings to see analytics.</div>';
+      app.innerHTML = html;
+      wireTopbar(() => { state.screen = "home"; render(); });
+      return;
+    }
+
+    const structures = state.sheets.map((s) => state.analyticsData[s.id]).filter(Boolean);
+    const names = RT.analyticsCore.listExerciseNames(structures);
+
+    if (!names.length) {
+      html += '<div class="empty-state">No exercise data cached yet — this fills in as your sheets sync.</div>';
+      app.innerHTML = html;
+      wireTopbar(() => { state.screen = "home"; render(); });
+      return;
+    }
+
+    if (!state.analyticsExercise || names.indexOf(state.analyticsExercise) === -1) state.analyticsExercise = names[0];
+
+    html += '<div class="form-field"><label>Exercise</label><select id="analytics-exercise">';
+    names.forEach((n) => { html += `<option value="${escapeAttr(n)}" ${n === state.analyticsExercise ? "selected" : ""}>${escapeHtml(n)}</option>`; });
+    html += '</select></div>';
+
+    html += '<div class="week-tabs">';
+    html += `<button class="week-tab ${state.analyticsMetric === "topWeightKg" ? "active" : ""}" data-metric="topWeightKg">Top weight</button>`;
+    html += `<button class="week-tab ${state.analyticsMetric === "estVolume" ? "active" : ""}" data-metric="estVolume">Est. volume</button>`;
+    html += '</div>';
+
+    const series = RT.analyticsCore.buildExerciseSeries(state.analyticsExercise, state.sheets, state.analyticsData);
+
+    if (!series.length) {
+      html += '<div class="empty-state">No logged data for this exercise yet.</div>';
+    } else {
+      html += '<div class="chart-wrap"><canvas id="analytics-chart"></canvas></div>';
+      html += '<table class="summary-table"><thead><tr><th>When</th><th>Top weight</th><th>Volume</th><th>Sets</th></tr></thead><tbody>';
+      series.forEach((p) => {
+        html += `<tr><td>${escapeHtml(p.label)}</td><td class="num">${p.topWeightKg === null ? "—" : p.topWeightKg}</td><td class="num">${p.estVolume === null ? "—" : Math.round(p.estVolume)}</td><td class="num">${p.setsLogged === null ? "—" : p.setsLogged}</td></tr>`;
+      });
+      html += '</tbody></table>';
+    }
+
+    if (state.analyticsRefreshed && state.analyticsRefreshed.ok < state.analyticsRefreshed.total) {
+      html += `<p class="settings-hint">${state.analyticsRefreshed.ok} of ${state.analyticsRefreshed.total} sheets refreshed — showing cached data for the rest.</p>`;
+    }
+
+    app.innerHTML = html;
+    wireTopbar(() => { state.screen = "home"; render(); });
+
+    document.getElementById("analytics-exercise").onchange = (e) => { state.analyticsExercise = e.target.value; render(); };
+    app.querySelectorAll("[data-metric]").forEach((el) => {
+      el.onclick = () => { state.analyticsMetric = el.getAttribute("data-metric"); render(); };
+    });
+
+    if (series.length) drawAnalyticsChart(series);
+  }
+
+  function drawAnalyticsChart(series) {
+    const canvas = document.getElementById("analytics-chart");
+    if (!canvas || typeof Chart === "undefined") return;
+    if (state.analyticsChart) { state.analyticsChart.destroy(); state.analyticsChart = null; }
+    const styles = getComputedStyle(document.documentElement);
+    const textColor = styles.getPropertyValue("--text-secondary").trim();
+    const gridColor = styles.getPropertyValue("--border").trim();
+    const accent = styles.getPropertyValue("--accent").trim();
+    const data = RT.analyticsCore.chartDataFor(series, state.analyticsMetric);
+    state.analyticsChart = new Chart(canvas.getContext("2d"), {
+      type: "line",
+      data: {
+        labels: data.labels,
+        datasets: [{
+          label: data.datasets[0].label, data: data.datasets[0].data,
+          borderColor: accent, backgroundColor: accent, tension: 0.25, spanGaps: true
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { ticks: { color: textColor }, grid: { color: gridColor } },
+          y: { ticks: { color: textColor }, grid: { color: gridColor } }
+        }
+      }
+    });
   }
 
   /* ============ Image picker sheet ============ */
@@ -533,11 +793,11 @@ window.RT = window.RT || {};
     // optimistic local update
     const lib = state.structure.exerciseLibrary || (state.structure.exerciseLibrary = {});
     lib[exerciseName] = { imageUrl, source };
-    await storage.setJSON(CACHE_KEY, state.structure);
+    await storage.setJSON(cacheKeyFor(state.activeSheetId), state.structure);
     if (state.screen === "session") render();
 
     try {
-      await api.updateExerciseImage({ exercise: exerciseName, imageUrl, source });
+      await api.updateExerciseImage({ sheetId: state.activeSheetId, exercise: exerciseName, imageUrl, source });
       showToast("Image saved to your sheet");
     } catch (e) {
       showToast("Saved here — will sync to the sheet later");
@@ -570,6 +830,7 @@ window.RT = window.RT || {};
       const name = document.getElementById("new-ex-name").value.trim();
       if (!name) { showToast("Give it a name first"); return; }
       const payload = {
+        sheetId: state.activeSheetId,
         dayTitle,
         exercise: name,
         bodyPart: document.getElementById("new-ex-bodypart").value.trim(),

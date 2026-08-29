@@ -35,14 +35,20 @@ Three things need to happen, in this order:
      can't do anyway.)
 8. Click **Deploy**. The first time, Google will ask you to authorize the
    script — that's normal, it's your own script asking for permission to
-   edit your own sheet.
+   edit spreadsheets under your account (this app can open any sheet you
+   point it at, not just the one it's pasted into, so it needs that broader
+   permission — you may see an "unverified app" warning since it's your own
+   personal script; click **Advanced → Go to (script name) (unsafe)** to
+   continue, same as any script you deploy yourself).
 9. Copy the **Web app URL** it gives you (looks like
    `https://script.google.com/macros/s/AKfycb.../exec`). You'll paste this
    into the app's Settings screen along with the secret from step 4.
 
 **If you edit `Code.gs` later:** you need to **Deploy → Manage deployments →
 edit (pencil) → New version → Deploy** for changes to take effect — saving
-the file alone doesn't update the live web app.
+the file alone doesn't update the live web app. The web app URL stays the
+same across versions, so nothing needs to change in the app when you do
+this.
 
 ## 2. Build the APK with GitHub Actions
 
@@ -78,8 +84,13 @@ file if you'd rather produce a signed release build.
 3. Open **Recomp Tracker**. On first launch it asks for:
    - **Web App URL** — from step 1.9 above.
    - **Shared token** — the `SHARED_SECRET` you set in step 1.4.
-4. Tap **Test & save**. It should show "Connected to '<your sheet name>'"
-   and take you to the home screen with your weeks and days.
+4. Tap **Test & save**. It should show "Deployment reachable".
+5. Under **Your sheets**, tap **+ Add a sheet** and paste your workout
+   sheet's share link (Google Sheets → **Share → Copy link** is enough — the
+   app only needs the file ID out of it, not edit access for whoever you
+   share it with). Give it a label like "March 2026" and pick the month.
+   Tap **Verify & add** — it becomes your active sheet and you're taken to
+   the home screen with your weeks and days.
 
 ## How it works day to day
 
@@ -112,14 +123,28 @@ file if you'd rather produce a signed release build.
 - **Offline**: if the app can't reach your sheet when you finish a workout,
   it saves the entries on your phone and syncs them automatically next time
   it can reach the internet — you'll see a banner while anything's pending.
+- **Analytics** (the 📈 icon next to Settings) charts an exercise's top
+  weight or estimated volume across every sheet you've added, in month
+  order — pick an exercise from the dropdown to see its trend.
 
 ## Starting a new month (new spreadsheet)
 
-Since your sheet defines a fixed 4-week block, when a cycle ends and you
-make a new spreadsheet for the next one: copy `Code.gs` into the new sheet's
-Apps Script editor (Extensions → Apps Script, same as step 1), deploy it the
-same way, and update the URL (and token, if you changed it) in the app's
-Settings screen. Everything else about the app stays the same.
+Since your sheet defines a fixed 4-week block, when a cycle ends you make a
+new spreadsheet for the next one from the same template. Unlike the old
+one-deployment-per-sheet setup, this doesn't need touching `Code.gs` again —
+just:
+
+1. In Settings, tap **+ Add a sheet**.
+2. Paste the new spreadsheet's share link, give it a label (e.g. "April
+   2026") and pick its month.
+3. Tap **Verify & add**. It becomes your active sheet for logging, and the
+   old month's sheet stays in the list — Analytics keeps reading from all of
+   them, so nothing is lost.
+
+This only works because the deploying Google account has edit access to
+every sheet you add (true automatically if you create them all yourself).
+If you ever add a sheet made under a different Google account, share it with
+edit access to the account that deployed `Code.gs` first.
 
 ## Testing changes without touching your real sheet
 
@@ -133,11 +158,34 @@ npm run mock
 ```
 
 Then open `http://localhost:4455` in a browser, and in Settings use URL
-`http://localhost:4455/exec` with token `test-token`.
+`http://localhost:4455/exec` with token `test-token`. When adding a sheet,
+paste `https://docs.google.com/spreadsheets/d/mock-sheet-1/edit` (or
+`mock-sheet-2` for a second one) — the mock server seeds two fake
+spreadsheets under those IDs so you can test switching sheets and Analytics
+without touching Google at all.
 
 `npm run test:parse` re-verifies the sheet-parsing logic (day-block
 detection, column mapping, the "8-10 became a date" fix) against a real dump
 of `Week-1` — worth re-running if you restructure your sheet's layout.
+
+`npm run test:analytics` verifies the Analytics screen's aggregation math
+(numeric coercion, rep-range midpoints, cross-sheet series building) against
+a small hand-built fixture.
+
+## Upgrading from an older single-sheet install
+
+If you deployed this app before it supported multiple monthly sheets, two
+one-time steps are needed:
+
+1. **Redeploy `Code.gs`** — paste the latest version in, then **Deploy →
+   Manage deployments → edit (pencil) → New version → Deploy**. You'll see
+   Google's authorization screen again (see step 1.8 above) — that's
+   expected, not a bug. The web app URL doesn't change.
+2. **Reconnect in the app** — on next launch, the app will ask you to
+   re-add your sheet (Settings opens automatically with a one-time banner).
+   Paste the same sheet's share link you were already using; nothing on the
+   sheet itself is touched, this just gives the app a durable pointer to it,
+   which the old version never stored.
 
 ## Optional: a signed release build instead of debug
 
